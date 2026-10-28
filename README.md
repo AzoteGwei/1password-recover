@@ -1,38 +1,125 @@
-# 1Password recover passwords
+# 1Password SQLite Recover & 1PUX Exporter
 
-This is a really quick and dirty script to parse the local 1Password SQLite database where you passwords are kept encrypted.
+Extract and decrypt passwords and items from a local `1password.sqlite` database and export them into a standard **`.1pux`** (1Password Unencrypted Export) package.
 
-> This is entirely based on [David Schuetz's work](https://darthnull.org/1pass-roundtrip/) ([@dschuetz](https://github.com/dschuetz)). I only copy pasted his work.  
-> https://darthnull.org/1pass-roundtrip/  
-> https://github.com/dschuetz/1password
+This package can be imported directly into **1Password 8**, **Bitwarden**, **KeePassXC**, or **Apple Passwords**.
 
-## Why?
+> **No Docker Required**. Modernized to Python 3 with [uv](https://docs.astral.sh/uv/) for instant execution.
+> Safe credential input using masked passwords (no plaintext leakage in terminal history).
 
-1Password unfortunately doesn't allow to make a proper encrypted backup of your passwords. Only option currently is to export an unencrypted list of your passwords 👎  
-If you're a developer and know how to navigate the filesystem, you can copy the SQLite database. But the format of the file is not open source.  
-@dschuetz seemed to be able to just open the file and query it like a regular SQL database, unfortunately that didn't work for me so I had to parse it manually to get the info out.
+---
 
-## Unfinished business...
+## 🚀 Quick Start (with `uv`)
 
-This work is not finished 😕  
-The SQLite file stores the username/password and the rest of the info (title and extra fields...) separately.
-Because the parsing of the file is annoying, it should successfully extract the passwords but doesn't associate it to the rest of the data. Which seems kind of useless for now...
+### 1. Copy your `1password.sqlite` database
+Make sure **1Password is completely closed/quit** before copying the file. This ensures SQLite flushes the Write-Ahead Log (WAL) into the main single database file.
 
-I haven't looked too deep in the SQLite file, but I'm sure there must be an easy way to associate the title to the password. [Here](https://darthnull.org/1pass-roundtrip/#:~:text=Decrypting%20a%20Vault%20Item) we can see that the metadata is stored in the `overview` field and the password in the `details` field of the same item.
-
-## Instructions
-
-Copy your 1password.sqlite file to `recover_op`  
-You can find it in "~/Library/Group Containers/2BUA8C4S2C.com.1password/Library/Application Support/1Password/Data"
-
+On macOS (1Password 7 / 8):
 ```bash
-cp ~/Library/Group\ Containers/2BUA8C4S2C.com.1password/Library/Application\ Support/1Password/Data/1password.sqlite recover_op
+# 1. Completely quit 1Password
+killall "1Password" 2>/dev/null
+
+# 2. Copy the database
+cp ~/Library/Group\ Containers/2BUA8C4S2C.com.1password/Library/Application\ Support/1Password/Data/1password.sqlite .
 ```
 
-Build docker image, run it, and run the `get_items.py` script:
+On Windows (1Password 8):
+```powershell
+# In PowerShell:
+Copy-Item "$env:LOCALAPPDATA\1password\data\1password.sqlite" .
+```
+
+### 2. Run the recovery tool
+
+Using `uv`:
+```bash
+uv run recover-op
+```
+
+Or using native Python 3:
+```bash
+python -m recover_op.cli
+# or
+python recover_op/get_items.py
+```
+
+### 3. Enter your credentials
+The tool will automatically detect if multiple accounts exist in the database, allow you to select which account to decrypt (skipping any Passkey-only accounts), and securely prompt for your credentials without echoing characters:
+```text
+[*] Found 1Password database: ./1password.sqlite (4.25 MB)
+----------------------------------------------------------------------
+[*] Discovered 2 accounts in database:
+    [1] Personal (user@gmail.com | https://my.1password.com | UUID: 2BUA8C...)
+    [2] Work Passkey Account (user@company.com | https://company.1password.com)
+
+Select account to decrypt [1-2] (default: 1): 1
+
+[+] Active account: Personal (user@gmail.com)
+Enter Secret Key (e.g. A3-xxxxxx-xxxxxx-...): 
+Enter Master Password: 
+Enter Account Email (press Enter for 'user@gmail.com'): 
+
+[*] Deriving keys and decrypting vaults...
+[+] Successfully decrypted 1 vault(s) and 182 item(s)!
+    - Vault 1: 'Personal' -> 182 items
+
+[+] Exported 1PUX package: ./recovered_Personal_1740000000.1pux
+[*] You can now directly import this .1pux file into:
+    - 1Password 8 (File -> Import -> 1Password Unencrypted Export)
+    - KeePassXC (Database -> Import -> 1Password .1pux)
+    - Bitwarden (Tools -> Import Data -> 1Password (1pux))
+```
+
+---
+
+## 🛠️ CLI Options
+
+You can also pass arguments directly or via environment variables for automation:
 
 ```bash
-docker build -t op .
-docker run -it -w /app op
-python2 get_items.py
+uv run recover-op --help
 ```
+
+```text
+options:
+  -h, --help            show this help message and exit
+  --db, -d DB           Path to 1password.sqlite database file (default: 1password.sqlite)
+  --account, -a ACC     Account to decrypt by index (e.g. 1, 2), UUID, or email
+  --output, -o OUTPUT   Path for output .1pux file (default: recovered_<timestamp>.1pux)
+  --email, -e EMAIL     1Password account email address
+  --secret-key, -s KEY  1Password account Secret Key (A3-...)
+  --password, -p PWD    1Password account Master Password
+  --mode {auto,sqlite,raw}
+                        Extraction strategy: 'sqlite' (best, when app is closed),
+                        'raw' (fallback stream scan), 'auto' (default)
+
+```
+
+Environment variables supported:
+- `OP_SECRET_KEY`
+- `OP_MASTER_PASSWORD`
+- `OP_EMAIL`
+
+---
+
+## 🔐 How It Works
+
+1. **Two-Secret Key Derivation (2SKD)**:
+   Combines your Master Password and Secret Key (`A3-...`) using HKDF + PBKDF2-HMAC-SHA256 and bitwise XOR to derive the Master Unlock Key (MUK).
+2. **Master Key (MK) & RSA Private Key**:
+   Decrypts the 256-bit symmetric Master Key using AES-256-GCM, which in turn decrypts your account's RSA private key.
+3. **Vault Keys**:
+   Decrypts vault symmetric keys using RSA-OAEP.
+4. **Item Association (Overview + Details)**:
+   Decrypts item `overview` (title, URL, username) and item `details` (passwords, custom fields, notes) in tandem from the SQLite table rows.
+5. **1PUX Packaging**:
+   Formats the decrypted records into the standard 1PUX schema (`export.attributes`, `export.data`, `files/`) and generates a ready-to-import `.1pux` zip archive.
+
+---
+
+## 📦 What about Docker?
+The previous Dockerfile was used solely to run Python 2 and install an obsolete dependency (`pyjwkest`).
+This project has been completely refactored for **Python 3** and modern standards:
+- Deprecated `pyjwkest` replaced with native standard library JWK decoding.
+- Cross-platform support across Windows, macOS, and Linux.
+- Instant venv resolution with `uv`.

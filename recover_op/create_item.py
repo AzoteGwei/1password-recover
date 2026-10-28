@@ -1,11 +1,37 @@
+import shutil
 import subprocess
+from typing import Optional
 
-# ex: create_item("cli-tests", "Netflix", "login", "'password=12345' 'username=abc' 'Subscription Renewal Date[date]=2023-12-31'")
-def create_item(vault, title, category, data):
+
+def create_item(vault: str, title: str, category: str, data: str) -> Optional[str]:
+    """
+    Optional helper to recreate an item using the official 1Password CLI ('op').
+    Requires 'op' to be installed on the host system.
+    """
+    op_bin = shutil.which("op")
+    if not op_bin:
+        print("[!] 1Password CLI ('op') not found in PATH.")
+        return None
+
+    cmd = [
+        op_bin,
+        "item",
+        "create",
+        "--vault",
+        vault,
+        "--title",
+        title,
+        "--category",
+        category,
+    ]
+    # If data contains extra parameters, pass them
+    if data:
+        cmd.extend(data.split())
+
     try:
-        cmd = "op item create --vault %s --title %s --category %s %s" % (vault, title, category, data)
-        res = subprocess.check_output(cmd, shell=True)
-        print(res)
-    except:
-        print("error...")
-
+        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        print(f"[+] Item created successfully: {title}")
+        return res.stdout
+    except subprocess.CalledProcessError as e:
+        print(f"[-] Error creating item '{title}': {e.stderr}")
+        return None
