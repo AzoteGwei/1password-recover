@@ -60,3 +60,41 @@ def build_1pux_package(
 
     return out_file
 
+
+def load_items_from_file(file_path: UnionPath) -> List[Dict[str, Any]]:
+    """
+    Extract items from an existing .1pux (ZIP) archive or a .json file.
+    """
+    path = Path(file_path).resolve()
+    if not path.exists():
+        raise FileNotFoundError(f"File not found: {path}")
+
+    # Case 1: .1pux or ZIP file
+    if zipfile.is_zipfile(path):
+        with zipfile.ZipFile(path, "r") as zf:
+            if "export.data" in zf.namelist():
+                content = zf.read("export.data").decode("utf-8")
+                data = json.loads(content)
+                items = []
+                for acc in data.get("accounts", []):
+                    for v in acc.get("vaults", []):
+                        items.extend(v.get("items", []))
+                return items
+
+    # Case 2: Plain JSON file
+    content = path.read_text(encoding="utf-8")
+    data = json.loads(content)
+
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        if "items" in data and isinstance(data["items"], list):
+            return data["items"]
+        if "accounts" in data:
+            items = []
+            for acc in data.get("accounts", []):
+                for v in acc.get("vaults", []):
+                    items.extend(v.get("items", []))
+            return items
+
+    raise ValueError(f"Could not extract item list from {path.name}")

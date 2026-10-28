@@ -10,6 +10,7 @@ dependencies = [
 
 [project.scripts]
 recover-op = "recover_op.cli:main"
+migrate-op = "recover_op.migrate:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["recover_op"]

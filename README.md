@@ -102,6 +102,30 @@ Environment variables supported:
 
 ---
 
+## 🔀 Vault Migration & 3-Way Merge (`migrate-op`)
+
+To migrate or merge vaults between accounts (e.g. merging Vault A from Account `Our` with Vault B from Account `Azote the Tester`):
+
+```bash
+uv run migrate-op
+```
+
+### Features:
+- **Interactive Account & Vault Selection**: Decrypts Account A and lets you pick Vault A; decrypts Account B (or loads from an existing `.1pux` / `.json` file) and lets you pick Vault B.
+- **Item ID Matching**: Pairs items automatically using their unique `id`.
+- **Intelligent 3-Way / 2-Way Merge**:
+  - Automatically merges unique items from both vaults.
+  - For common items, compares `updatedAt` timestamps (Last Write Wins) and preserves non-conflicting custom fields.
+  - Supports `--base <ancestor.json>` for true 3-way merge.
+- **Dual Export**: Generates both an importable `.1pux` package and a clean, merged `.json` file with merge statistics and conflict logs.
+
+```bash
+# Example non-interactive / automated invocation:
+uv run migrate-op -A 1 -B 2 -o merged_vault.1pux -j merged_vault.json
+```
+
+---
+
 ## 🔐 How It Works
 
 1. **Two-Secret Key Derivation (2SKD)**:
