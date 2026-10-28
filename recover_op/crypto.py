@@ -144,6 +144,19 @@ def dec_aes_gcm(ciphertext_with_tag: bytes, key: bytes, iv: bytes) -> bytes:
     return cipher.decrypt_and_verify(ct, tag)
 
 
+def enc_aes_gcm(plaintext: bytes, key: bytes, iv: Optional[bytes] = None) -> Tuple[bytes, bytes]:
+    """
+    Encrypt plaintext with AES-256-GCM.
+    Returns (ciphertext_with_tag, iv).
+    """
+    if iv is None:
+        iv = os.urandom(12)
+    cipher = AES.new(key, AES.MODE_GCM, nonce=iv, mac_len=16)
+    ct, tag = cipher.encrypt_and_digest(plaintext)
+    return ct + tag, iv
+
+
+
 def parse_rsa_jwk(jwk_data: Union[str, bytes, Dict[str, Any]]) -> RSA.RsaKey:
     """
     Pure Python parser to load RSA Private Key from JWK structure

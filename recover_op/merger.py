@@ -3,7 +3,63 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 
+def sanitize_item_for_migration(item: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Remove file and server-side attachment references from item to prevent broken
+    sync issues or missing remote attachment errors when migrating between accounts.
+    Preserves passwords, usernames, custom fields, and passkey/WebAuthn credentials!
+    """
+    cleaned = copy.deepcopy(item)
+
+    # 1. Top-level item attributes
+    for k in ["files", "attachments", "documentId", "document_id", "documentAttributes", "document_attributes"]:
+        cleaned.pop(k, None)
+
+    # 2. Overview cleaning
+    overview = cleaned.get("overview")
+    if isinstance(overview, dict):
+        for k in ["files", "attachments", "documentId", "document_id", "hasFiles", "has_files"]:
+            overview.pop(k, None)
+        if "icons" in overview and isinstance(overview["icons"], dict):
+            overview["icons"].pop("fileId", None)
+
+    # 3. Details cleaning
+    details = cleaned.get("details")
+    if isinstance(details, dict):
+        for k in ["files", "attachments", "documentAttributes", "document_attributes"]:
+            details.pop(k, None)
+
+        # Clean fields
+        fields = details.get("fields")
+        if isinstance(fields, list):
+            cleaned_fields = []
+            for f in fields:
+                if not isinstance(f, dict):
+                    continue
+                ftype = str(f.get("type", "")).lower()
+                fdesig = str(f.get("designation", "")).lower()
+                if ftype in ["file", "document", "attachment"] or fdesig in ["file", "document", "attachment"]:
+                    continue
+                if f.get("fileId") or f.get("documentId"):
+                    continue
+                cleaned_fields.append(f)
+            details["fields"] = cleaned_fields
+
+        # Clean sections
+        sections = details.get("sections")
+        if isinstance(sections, list):
+            for sec in sections:
+                if isinstance(sec, dict) and "fields" in sec and isinstance(sec["fields"], list):
+                    sec["fields"] = [
+                        f for f in sec["fields"]
+                        if isinstance(f, dict) and f.get("type") not in ["file", "document", "attachment"] and not f.get("fileId")
+                    ]
+
+    return cleaned
+
+
 def _get_timestamp(item: Dict[str, Any]) -> int:
+
     """Extract update timestamp from an item."""
     ts = item.get("updatedAt") or item.get("updated_at") or 0
     if isinstance(ts, (int, float)):
@@ -183,19 +239,19 @@ def merge_vault_items(
 
         if in_a and not in_b:
             stats["only_in_a"] += 1
-            merged_items.append(copy.deepcopy(in_a))
+            merged_items.append(sanitize_item_for_migration(in_a))
         elif in_b and not in_a:
             stats["only_in_b"] += 1
-            merged_items.append(copy.deepcopy(in_b))
+            merged_items.append(sanitize_item_for_migration(in_b))
         else:
             # In both A and B
             if in_a == in_b:
                 stats["in_both_identical"] += 1
-                merged_items.append(copy.deepcopy(in_a))
+                merged_items.append(sanitize_item_for_migration(in_a))
             else:
                 stats["in_both_merged"] += 1
                 merged_item, logs = merge_two_items(in_a, in_b, in_base)
-                merged_items.append(merged_item)
+                merged_items.append(sanitize_item_for_migration(merged_item))
                 if logs:
                     stats["conflict_logs"].extend(logs)
 

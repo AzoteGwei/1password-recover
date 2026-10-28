@@ -126,6 +126,31 @@ uv run migrate-op -A 1 -B 2 -o merged_vault.1pux -j merged_vault.json
 
 ---
 
+## ⚡ In-Place Direct Database Injection (`replace-op`)
+
+> **Why this exists**: 1Password officially does **not** support importing **Passkeys** via `.1pux` or `.csv`.
+> `replace-op` bypasses this limitation by re-encrypting the items (including WebAuthn/Passkey credentials) using the target vault's symmetric key and injecting them directly into `1password.sqlite`'s `items` table.
+>
+> ⚠️ **Safety First**:
+> 1. Make sure **1Password is completely closed** before writing!
+> 2. `replace-op` automatically creates a full backup (`1password.sqlite.backup_<timestamp>`).
+> 3. Server-side file/attachment references are automatically stripped to prevent remote sync 404s.
+
+```bash
+uv run replace-op -s merged_vault.json
+# or
+uv run replace-op -s recovered_Our_1740000000.1pux
+```
+
+Options:
+- `-s, --source`: Path to source `.1pux` or `.json` file containing items to import.
+- `-A, --target-account`: Target account index (e.g. `2`), UUID, or email.
+- `-V, --target-vault`: Target vault UUID or index.
+- `--dry-run`: Simulate encryption without touching the database.
+- `--no-backup`: Skip automatic database backup.
+
+---
+
 ## 🔐 How It Works
 
 1. **Two-Secret Key Derivation (2SKD)**:
